@@ -1,0 +1,89 @@
+@import 'tailwindcss';
+
+:root {
+    color-scheme: dark;
+    font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+}
+
+* {
+    box-sizing: border-box;
+}
+
+button,
+input,
+select,
+textarea,
+summary {
+    outline: none;
+}
+
+button:focus-visible,
+input:focus-visible,
+select:focus-visible,
+textarea:focus-visible,
+summary:focus-visible {
+    box-shadow: 0 0 0 3px rgba(103, 232, 249, .85);
+}
+
+.shell {
+    background:
+        linear-gradient(rgba(255, 255, 255, .035) 1px, transparent 1px),
+        linear-gradient(90deg, rgba(255, 255, 255, .035) 1px, transparent 1px),
+        #050816;
+    background-size: 48px 48px;
+}
+
+.aurora {
+    background:
+        radial-gradient(circle at 20% 20%, rgba(34, 211, 238, .28), transparent 30%),
+        radial-gradient(circle at 70% 30%, rgba(139, 92, 246, .32), transparent 34%),
+        radial-gradient(circle at 55% 80%, rgba(251, 113, 133, .22), transparent 30%);
+    filter: blur(30px);
+}
+
+.pulse-ring {
+    animation: pulse-ring 1.7s ease-in-out infinite;
+}
+
+.shell[data-state="connected"] .waiting-panel,
+.shell[data-state="reconnecting"] .waiting-panel,
+.shell[data-state="ended"] .waiting-panel,
+.shell[data-state="failed"] .waiting-panel {
+    display: none;
+}
+
+.sr-only {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    padding: 0;
+    margin: -1px;
+    overflow: hidden;
+    clip: rect(0, 0, 0, 0);
+    white-space: nowrap;
+    border: 0;
+}
+
+@keyframes pulse-ring {
+    50% {
+        transform: scale(1.06);
+        opacity: .72;
+    }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .pulse-ring {
+        animation: none;
+    }
+}
+
+@media (max-width: 720px) {
+    .local {
+        top: max(96px, env(safe-area-inset-top));
+        width: min(150px, 38vw);
+    }
+
+    .duration {
+        display: none;
+    }
+}
