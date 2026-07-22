@@ -28,15 +28,42 @@ class MatchmakingService
             ];
         }
 
-        DB::transaction(function () use ($guest) {
+        $matchedRoom = DB::transaction(function () use ($guest) {
             $guest = GuestSession::query()->lockForUpdate()->findOrFail($guest->id);
-            $guest->forceFill(['status' => GuestStatus::Queued, 'last_seen_at' => now()])->save();
+            $freshAfter = now()->subSeconds((int) config('videochat.heartbeat_ttl_seconds'));
+
+            $candidate = GuestSession::query()
+                ->whereKeyNot($guest->id)
+                ->where('status', GuestStatus::Queued)
+                ->where('expires_at', '>', now())
+                ->where('last_seen_at', '>=', $freshAfter)
+                ->oldest('last_seen_at')
+                ->lockForUpdate()
+                ->get()
+                ->first(fn (GuestSession $candidate) => $this->abuse->canMeet($guest, $candidate) && ! $this->isCoolingDown($guest, $candidate));
+
+            if ($candidate) {
+                return $this->rooms->create($candidate, $guest);
+            }
+
+            $guest->forceFill([
+                'status' => GuestStatus::Queued,
+                'last_seen_at' => now(),
+            ])->save();
+
+            return null;
         });
 
+        if ($matchedRoom) {
+            foreach ([$matchedRoom->firstGuest, $matchedRoom->secondGuest] as $participant) {
+                broadcast(new MatchFound($participant, $matchedRoom));
+            }
+        }
+
         return [
-            'matched' => false,
+            'matched' => (bool) $matchedRoom,
             'available' => $this->availableCount($guest),
-            'room' => null,
+            'room' => $matchedRoom?->public_uuid,
         ];
     }
 
