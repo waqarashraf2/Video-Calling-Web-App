@@ -24,9 +24,17 @@ class SignalingController extends Controller
         $room = CallRoom::query()
             ->with(['firstGuest', 'secondGuest'])
             ->where('public_uuid', $data['room_uuid'])
-            ->where('status', RoomStatus::Active)
-            ->firstOrFail();
+            ->first();
+
+        if (! $room) {
+            return response()->json(['signals' => [], 'room_ended' => true]);
+        }
+
         abort_unless($room->contains($guest), 403);
+
+        if ($room->status !== RoomStatus::Active) {
+            return response()->json(['signals' => [], 'room_ended' => true]);
+        }
 
         return response()->json([
             'signals' => $signaling->pendingFor($guest, $room, (int) ($data['after'] ?? 0)),

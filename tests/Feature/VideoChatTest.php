@@ -149,6 +149,26 @@ it('validates signal payload shape and size', function () {
     ])->assertUnprocessable()->assertJsonValidationErrors(['room_uuid', 'sequence', 'type', 'payload.sdp']);
 });
 
+it('returns an ended marker instead of not found for stale signal polling', function () {
+    $first = createGuest();
+    $second = createGuest();
+    $room = CallRoom::query()->create([
+        'public_uuid' => (string) Str::uuid(),
+        'first_guest_session_id' => $first->id,
+        'second_guest_session_id' => $second->id,
+        'initiator_guest_session_id' => $first->id,
+        'status' => RoomStatus::Ended,
+        'started_at' => now(),
+        'ended_at' => now(),
+    ]);
+    asGuest($first);
+
+    $this->getJson('/api/signals?room_uuid='.$room->public_uuid.'&after=0')
+        ->assertSuccessful()
+        ->assertJsonPath('room_ended', true)
+        ->assertJsonPath('signals', []);
+});
+
 it('stores reports and blocks peers without media evidence', function () {
     $first = createGuest();
     $second = createGuest();

@@ -1,7 +1,5 @@
 import './bootstrap';
-import Echo from 'laravel-echo';
 import { gsap } from 'gsap';
-import Pusher from 'pusher-js';
 
 const $ = (id) => document.getElementById(id);
 const els = {
@@ -16,12 +14,13 @@ const els = {
 };
 
 const state = {
-    session: null, room: null, peer: null, initiator: false, echo: null, channel: null, roomChannel: null,
+    session: null, room: null, peer: null, initiator: false,
     localStream: null, pc: null, sequence: 0, pendingIce: [], audio: true, video: true, facing: 'user',
     heartbeat: null, duration: null, quality: null, onlinePoll: null, statePoll: null, availablePoll: null, signalPoll: null, startedAt: null, connectionTimer: null, aborter: null,
     lastSignalId: 0,
     recovering: false,
     waitingTween: null,
+    connectionTimeoutSeconds: 45,
 };
 
 const motion = !window.matchMedia('(prefers-reduced-motion: reduce)').matches;
@@ -237,7 +236,13 @@ function startSignalPolling() {
         if (!state.room || !state.pc) return;
 
         try {
-            const { signals } = await api('get', `/api/signals?room_uuid=${encodeURIComponent(state.room)}&after=${state.lastSignalId}`);
+            const { signals, room_ended: roomEnded } = await api('get', `/api/signals?room_uuid=${encodeURIComponent(state.room)}&after=${state.lastSignalId}`);
+            if (roomEnded) {
+                cleanupPeer(true);
+
+                return;
+            }
+
             for (const message of signals || []) {
                 state.lastSignalId = Math.max(state.lastSignalId, Number(message.id) || 0);
                 await handleSignal(message);
@@ -314,31 +319,6 @@ function fillSelect(select, devices, fallback) {
     if ([...select.options].some((option) => option.value === selected)) select.value = selected;
 }
 
-function connectEcho() {
-    if (state.echo || !state.session) return;
-    try {
-        window.Pusher = Pusher;
-        state.echo = new Echo({
-            broadcaster: 'reverb',
-            key: import.meta.env.VITE_REVERB_APP_KEY,
-            wsHost: import.meta.env.VITE_REVERB_HOST || window.location.hostname,
-            wsPort: Number(import.meta.env.VITE_REVERB_PORT || 8080),
-            wssPort: Number(import.meta.env.VITE_REVERB_PORT || 443),
-            forceTLS: (import.meta.env.VITE_REVERB_SCHEME || 'http') === 'https',
-            enabledTransports: ['ws', 'wss'],
-            authEndpoint: '/broadcasting/auth',
-        });
-        state.channel = state.echo.private(`guest.${state.session.uuid}`)
-            .listen('.match.found', handleMatch)
-            .listen('.webrtc.signal', handleSignal)
-            .listen('.participant.left', () => endCall('The other participant left.', true))
-            .listen('.participant.media-state', (event) => updatePeerMedia(event.state));
-    } catch {
-        state.echo = null;
-        state.channel = null;
-    }
-}
-
 async function start(event) {
     event.preventDefault();
     els.error.textContent = '';
@@ -350,7 +330,6 @@ async function start(event) {
         state.session = created.session;
         window.setCsrfToken?.(created.csrf_token);
         await window.refreshCsrfToken?.();
-        connectEcho();
         showCall();
         setStatus('searching');
         const joined = await api('post', '/api/matchmaking/join');
@@ -385,6 +364,7 @@ async function handleMatch(event) {
     state.room = event.room_uuid;
     state.peer = event.peer;
     state.initiator = event.initiator;
+    state.connectionTimeoutSeconds = Number(event.connection_timeout_seconds || 45);
     els.peer.textContent = event.peer?.display_name || 'Participant';
     els.waiting.hidden = false;
     setStatus('connecting');
@@ -425,7 +405,7 @@ async function createPeerConnection(iceServers) {
     };
     state.connectionTimer = setTimeout(() => {
         if (!['connected', 'completed'].includes(state.pc?.iceConnectionState)) recoverConnection('Could not connect media. Retrying...');
-    }, 25000);
+    }, Math.max(30, state.connectionTimeoutSeconds) * 1000);
 }
 
 async function handleSignal({ room_uuid, signal }) {
