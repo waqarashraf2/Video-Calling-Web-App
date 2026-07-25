@@ -9,6 +9,10 @@ class SafeBroadcaster
 {
     public function broadcast(object $event, bool $toOthers = false): void
     {
+        if (! config('videochat.realtime_broadcast')) {
+            return;
+        }
+
         try {
             $pending = broadcast($event);
 

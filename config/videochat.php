@@ -10,7 +10,9 @@ return [
     'block_retention_days' => (int) env('VIDEOCHAT_BLOCK_RETENTION_DAYS', 30),
     'fingerprint_rotation_key' => env('VIDEOCHAT_FINGERPRINT_KEY', env('APP_KEY')),
     'fingerprint_rotation_days' => (int) env('VIDEOCHAT_FINGERPRINT_ROTATION_DAYS', 7),
-    'signal_max_bytes' => (int) env('VIDEOCHAT_SIGNAL_MAX_BYTES', 12000),
+    'signal_max_bytes' => (int) env('VIDEOCHAT_SIGNAL_MAX_BYTES', 70000),
+    'signal_sdp_max_bytes' => (int) env('VIDEOCHAT_SIGNAL_SDP_MAX_BYTES', 65535),
+    'realtime_broadcast' => (bool) env('VIDEOCHAT_REALTIME_BROADCAST', false),
     'queue_store' => env('VIDEOCHAT_QUEUE_STORE', env('CACHE_STORE', 'database')),
     'rate_limits' => [
         'join' => env('VIDEOCHAT_JOIN_LIMIT', '30,1'),

@@ -99,7 +99,7 @@ it('lists available users and safely calls one selected user', function () {
         ->assertJsonPath('matched', true);
 
     $this->assertDatabaseCount('call_rooms', 1);
-    Event::assertDispatched(MatchFound::class, 2);
+    Event::assertNotDispatched(MatchFound::class);
 });
 
 it('rejects unauthorized signals and expired rooms', function () {
@@ -140,8 +140,37 @@ it('validates signal payload shape and size', function () {
         'room_uuid' => 'not-a-uuid',
         'sequence' => 0,
         'type' => 'bad',
-        'payload' => ['sdp' => str_repeat('x', 10001)],
+        'payload' => ['sdp' => str_repeat('x', 65536)],
     ])->assertUnprocessable()->assertJsonValidationErrors(['room_uuid', 'sequence', 'type', 'payload.sdp']);
+});
+
+it('accepts real sized webrtc sdp payloads for polling signals', function () {
+    $first = createGuest();
+    $second = createGuest();
+    $room = CallRoom::query()->create([
+        'public_uuid' => (string) Str::uuid(),
+        'first_guest_session_id' => $first->id,
+        'second_guest_session_id' => $second->id,
+        'initiator_guest_session_id' => $first->id,
+        'status' => RoomStatus::Active,
+        'started_at' => now(),
+    ]);
+    asGuest($first);
+
+    $sdp = 'v=0'.PHP_EOL.implode(PHP_EOL, array_fill(0, 300, 'a=candidate:'.Str::random(80)));
+
+    $this->postJson('/api/signals', [
+        'room_uuid' => $room->public_uuid,
+        'sequence' => 1,
+        'type' => 'offer',
+        'payload' => ['sdp' => $sdp],
+    ])->assertOk();
+
+    asGuest($second);
+    $this->getJson('/api/signals?room_uuid='.$room->public_uuid.'&after=0')
+        ->assertOk()
+        ->assertJsonPath('signals.0.signal.type', 'offer')
+        ->assertJsonPath('signals.0.signal.payload.sdp', $sdp);
 });
 
 it('returns an ended marker instead of not found for stale signal polling', function () {
