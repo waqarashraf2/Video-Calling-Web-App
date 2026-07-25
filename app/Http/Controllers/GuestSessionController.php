@@ -55,6 +55,8 @@ class GuestSessionController extends Controller
 
     public function online(GuestSessionService $sessions, MatchmakingService $matchmaking): JsonResponse
     {
+        $matchmaking->expireStaleState();
+
         $freshAfter = now()->subSeconds((int) config('videochat.heartbeat_ttl_seconds'));
         $guest = $sessions->current();
 
@@ -62,7 +64,8 @@ class GuestSessionController extends Controller
             'online' => GuestSession::query()
                 ->where('expires_at', '>', now())
                 ->where('last_seen_at', '>=', $freshAfter)
-                ->count(),
+                ->distinct('abuse_fingerprint')
+                ->count('abuse_fingerprint'),
             'waiting' => $matchmaking->availableCount($guest),
         ]);
     }

@@ -57,7 +57,7 @@ it('prevents duplicate queue entries', function () {
     $this->assertDatabaseCount('call_rooms', 0);
 });
 
-it('automatically matches the next compatible waiting guest', function () {
+it('keeps guests available until someone manually calls them', function () {
     Event::fake([MatchFound::class]);
     $first = createGuest(['display_name' => 'Ada']);
     $second = createGuest(['display_name' => 'Grace']);
@@ -68,20 +68,15 @@ it('automatically matches the next compatible waiting guest', function () {
         ->assertJsonPath('matched', false);
 
     asGuest($second);
-    $response = $this->postJson('/api/matchmaking/join')
+    $this->postJson('/api/matchmaking/join')
         ->assertOk()
-        ->assertJsonPath('matched', true)
-        ->assertJsonStructure(['room']);
+        ->assertJsonPath('matched', false)
+        ->assertJsonPath('room', null);
 
-    $room = CallRoom::query()
-        ->where('public_uuid', $response->json('room'))
-        ->firstOrFail();
-
-    expect($room->contains($first))->toBeTrue()
-        ->and($room->contains($second))->toBeTrue();
-    expect($first->refresh()->status)->toBe(GuestStatus::Matched)
-        ->and($second->refresh()->status)->toBe(GuestStatus::Matched);
-    Event::assertDispatched(MatchFound::class, 2);
+    expect($first->refresh()->status)->toBe(GuestStatus::Queued)
+        ->and($second->refresh()->status)->toBe(GuestStatus::Queued);
+    $this->assertDatabaseCount('call_rooms', 0);
+    Event::assertNotDispatched(MatchFound::class);
 });
 
 it('lists available users and safely calls one selected user', function () {

@@ -3,7 +3,9 @@
 namespace App\Services;
 
 use App\Enums\GuestStatus;
+use App\Enums\RoomStatus;
 use App\Events\MatchFound;
+use App\Models\CallRoom;
 use App\Models\GuestSession;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
@@ -20,6 +22,8 @@ class MatchmakingService
 
     public function join(GuestSession $guest): array
     {
+        $this->expireStaleState();
+
         $activeRoom = $this->rooms->activeRoomFor($guest);
         if ($activeRoom) {
             return [
@@ -29,47 +33,28 @@ class MatchmakingService
             ];
         }
 
-        $matchedRoom = DB::transaction(function () use ($guest) {
+        $guest = DB::transaction(function () use ($guest) {
             $guest = GuestSession::query()->lockForUpdate()->findOrFail($guest->id);
-            $freshAfter = now()->subSeconds((int) config('videochat.heartbeat_ttl_seconds'));
-
-            $candidate = GuestSession::query()
-                ->whereKeyNot($guest->id)
-                ->where('status', GuestStatus::Queued)
-                ->where('expires_at', '>', now())
-                ->where('last_seen_at', '>=', $freshAfter)
-                ->oldest('last_seen_at')
-                ->lockForUpdate()
-                ->get()
-                ->first(fn (GuestSession $candidate) => $this->abuse->canMeet($guest, $candidate) && ! $this->isCoolingDown($guest, $candidate));
-
-            if ($candidate) {
-                return $this->rooms->create($candidate, $guest);
-            }
 
             $guest->forceFill([
                 'status' => GuestStatus::Queued,
                 'last_seen_at' => now(),
             ])->save();
 
-            return null;
+            return $guest;
         });
 
-        if ($matchedRoom) {
-            foreach ([$matchedRoom->firstGuest, $matchedRoom->secondGuest] as $participant) {
-                $this->broadcaster->broadcast(new MatchFound($participant, $matchedRoom));
-            }
-        }
-
         return [
-            'matched' => (bool) $matchedRoom,
+            'matched' => false,
             'available' => $this->availableCount($guest),
-            'room' => $matchedRoom?->public_uuid,
+            'room' => null,
         ];
     }
 
     public function availableFor(GuestSession $guest): array
     {
+        $this->expireStaleState();
+
         $freshAfter = now()->subSeconds((int) config('videochat.heartbeat_ttl_seconds'));
 
         return GuestSession::query()
@@ -80,7 +65,10 @@ class MatchmakingService
             ->latest('last_seen_at')
             ->limit(25)
             ->get()
-            ->filter(fn (GuestSession $candidate) => $this->abuse->canMeet($guest, $candidate) && ! $this->isCoolingDown($guest, $candidate))
+            ->filter(fn (GuestSession $candidate) => $candidate->abuse_fingerprint !== $guest->abuse_fingerprint
+                && $this->abuse->canMeet($guest, $candidate)
+                && ! $this->isCoolingDown($guest, $candidate))
+            ->unique('abuse_fingerprint')
             ->map(fn (GuestSession $candidate) => [
                 'uuid' => $candidate->public_uuid,
                 'display_name' => $candidate->display_name,
@@ -92,6 +80,8 @@ class MatchmakingService
 
     public function call(GuestSession $guest, string $targetUuid): array
     {
+        $this->expireStaleState();
+
         $matchedRoom = DB::transaction(function () use ($guest, $targetUuid) {
             $guest = GuestSession::query()->lockForUpdate()->findOrFail($guest->id);
             $target = GuestSession::query()
@@ -103,13 +93,28 @@ class MatchmakingService
                 throw ValidationException::withMessages(['target_uuid' => 'This participant is no longer available.']);
             }
 
-            if ($guest->status !== GuestStatus::Queued || $target->status !== GuestStatus::Queued) {
-                throw ValidationException::withMessages(['target_uuid' => 'This participant is already in another call.']);
+            if ($target->abuse_fingerprint === $guest->abuse_fingerprint) {
+                throw ValidationException::withMessages(['target_uuid' => 'This participant is another tab from your device.']);
             }
 
             $freshAfter = now()->subSeconds((int) config('videochat.heartbeat_ttl_seconds'));
             if ($target->expires_at <= now() || $target->last_seen_at < $freshAfter) {
                 throw ValidationException::withMessages(['target_uuid' => 'This participant went offline.']);
+            }
+
+            if ($target->status !== GuestStatus::Queued) {
+                throw ValidationException::withMessages(['target_uuid' => 'This participant is not available now.']);
+            }
+
+            if ($guest->status === GuestStatus::Matched) {
+                throw ValidationException::withMessages(['target_uuid' => 'You are already in a call.']);
+            }
+
+            if ($guest->status !== GuestStatus::Queued) {
+                $guest->forceFill([
+                    'status' => GuestStatus::Queued,
+                    'last_seen_at' => now(),
+                ])->save();
             }
 
             if (! $this->abuse->canMeet($guest, $target) || $this->isCoolingDown($guest, $target)) {
@@ -158,6 +163,8 @@ class MatchmakingService
 
     public function availableCount(?GuestSession $guest = null): int
     {
+        $this->expireStaleState();
+
         $freshAfter = now()->subSeconds((int) config('videochat.heartbeat_ttl_seconds'));
 
         return GuestSession::query()
@@ -165,6 +172,47 @@ class MatchmakingService
             ->where('status', GuestStatus::Queued)
             ->where('expires_at', '>', now())
             ->where('last_seen_at', '>=', $freshAfter)
-            ->count();
+            ->distinct('abuse_fingerprint')
+            ->count('abuse_fingerprint');
+    }
+
+    public function expireStaleState(): void
+    {
+        $stale = now()->subSeconds((int) config('videochat.heartbeat_ttl_seconds'));
+
+        GuestSession::query()
+            ->where(function ($query) use ($stale) {
+                $query->where('last_seen_at', '<', $stale)
+                    ->orWhere('expires_at', '<=', now());
+            })
+            ->whereIn('status', [GuestStatus::Idle, GuestStatus::Queued, GuestStatus::Matched])
+            ->update(['status' => GuestStatus::Expired, 'expires_at' => now()]);
+
+        CallRoom::query()
+            ->with(['firstGuest', 'secondGuest'])
+            ->where('status', RoomStatus::Active)
+            ->where(function ($query) use ($stale) {
+                $query->whereHas('firstGuest', function ($query) use ($stale) {
+                    $query->where('last_seen_at', '<', $stale)
+                        ->orWhere('expires_at', '<=', now());
+                })->orWhereHas('secondGuest', function ($query) use ($stale) {
+                    $query->where('last_seen_at', '<', $stale)
+                        ->orWhere('expires_at', '<=', now());
+                });
+            })
+            ->get()
+            ->each(function (CallRoom $room): void {
+                $room->forceFill([
+                    'status' => RoomStatus::Expired,
+                    'ended_at' => now(),
+                    'end_reason' => 'stale_participant',
+                ])->save();
+
+                foreach ([$room->firstGuest, $room->secondGuest] as $participant) {
+                    if ($participant->status !== GuestStatus::Expired) {
+                        $participant->forceFill(['status' => GuestStatus::Idle])->save();
+                    }
+                }
+            });
     }
 }

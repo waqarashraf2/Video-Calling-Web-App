@@ -182,7 +182,7 @@ async function refreshAvailableParticipants() {
 function startAvailablePolling() {
     refreshAvailableParticipants();
     clearInterval(state.availablePoll);
-    state.availablePoll = setInterval(refreshAvailableParticipants, 3000);
+    state.availablePoll = setInterval(refreshAvailableParticipants, 5000);
 }
 
 function stopAvailablePolling() {
@@ -287,7 +287,7 @@ async function recoverConnection(reason = 'Connection failed. Finding a new matc
 function startOnlinePolling() {
     refreshOnlineCount();
     clearInterval(state.onlinePoll);
-    state.onlinePoll = setInterval(refreshOnlineCount, 10000);
+    state.onlinePoll = setInterval(refreshOnlineCount, 5000);
 }
 
 async function requestMedia() {
@@ -341,7 +341,7 @@ async function start(event) {
         }
         startStatePolling();
         startAvailablePolling();
-        state.heartbeat = setInterval(() => api('post', '/api/guest-sessions/heartbeat').catch(() => {}), 25000);
+        state.heartbeat = setInterval(() => api('post', '/api/guest-sessions/heartbeat').catch(() => {}), 5000);
     } catch (error) {
         const message = error.response?.data?.message || 'Connection setup failed. Retrying safely...';
         if (state.session && !els.call.hidden) {
@@ -575,7 +575,8 @@ els.report.addEventListener('click', () => els.dialog.showModal());
 els.sendReport.addEventListener('click', asyncListener(async (event) => { event.preventDefault(); await report(); els.dialog.close(); }, 'Could not send the report. Please retry.'));
 els.block.addEventListener('click', asyncListener(async () => { await api('post', '/api/blocks', { room_uuid: state.room }); await endCall('Blocked and left.', true); }, 'Could not block this participant. Please retry.'));
 window.addEventListener('beforeunload', () => {
-    navigator.sendBeacon('/api/rooms/leave', new Blob([], { type: 'application/json' }));
+    const token = document.querySelector('meta[name="csrf-token"]')?.content || '';
+    navigator.sendBeacon('/api/rooms/leave', new URLSearchParams({ _token: token }));
 });
 
 populateDevices().catch(() => {});

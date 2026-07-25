@@ -2,7 +2,7 @@
 
 return [
     'session_ttl_minutes' => (int) env('VIDEOCHAT_SESSION_TTL_MINUTES', 45),
-    'heartbeat_ttl_seconds' => (int) env('VIDEOCHAT_HEARTBEAT_TTL_SECONDS', 75),
+    'heartbeat_ttl_seconds' => min(20, max(10, (int) env('VIDEOCHAT_HEARTBEAT_TTL_SECONDS', 15))),
     'room_ttl_minutes' => (int) env('VIDEOCHAT_ROOM_TTL_MINUTES', 90),
     'matchmaking_timeout_seconds' => (int) env('VIDEOCHAT_MATCHMAKING_TIMEOUT_SECONDS', 45),
     'rematch_cooldown_seconds' => (int) env('VIDEOCHAT_REMATCH_COOLDOWN_SECONDS', 120),
