@@ -36,11 +36,16 @@ jobs:
         run: npm run build
 
       - name: Configure SSH
+        id: configure-ssh
         env:
           SSH_PRIVATE_KEY: ${{ secrets.SSH_PRIVATE_KEY }}
           SSH_HOST: ${{ secrets.SSH_HOST }}
           SSH_PORT: ${{ secrets.SSH_PORT }}
         run: |
+          : "${SSH_PRIVATE_KEY:?SSH_PRIVATE_KEY secret is required}"
+          : "${SSH_HOST:?SSH_HOST secret is required}"
+          SSH_PORT="${SSH_PORT:-22}"
+
           mkdir -p ~/.ssh
           chmod 700 ~/.ssh
 
@@ -48,7 +53,8 @@ jobs:
           sed -i 's/\r$//' ~/.ssh/hostinger_deploy_key
           chmod 600 ~/.ssh/hostinger_deploy_key
 
-          ssh-keyscan -p "$SSH_PORT" -H "$SSH_HOST" >> ~/.ssh/known_hosts
+          touch ~/.ssh/known_hosts
+          ssh-keyscan -T 20 -p "$SSH_PORT" -H "$SSH_HOST" >> ~/.ssh/known_hosts || true
           chmod 600 ~/.ssh/known_hosts
 
       - name: Test SSH connection
@@ -57,8 +63,11 @@ jobs:
           SSH_PORT: ${{ secrets.SSH_PORT }}
           SSH_USER: ${{ secrets.SSH_USER }}
         run: |
+          SSH_PORT="${SSH_PORT:-22}"
+
           ssh \
             -i ~/.ssh/hostinger_deploy_key \
+            -o StrictHostKeyChecking=accept-new \
             -p "$SSH_PORT" \
             "$SSH_USER@$SSH_HOST" \
             "echo 'SSH connection successful'"
@@ -71,8 +80,11 @@ jobs:
           SSH_USER: ${{ secrets.SSH_USER }}
           DEPLOY_PATH: ${{ secrets.DEPLOY_PATH }}
         run: |
+          SSH_PORT="${SSH_PORT:-22}"
+
           ssh \
             -i ~/.ssh/hostinger_deploy_key \
+            -o StrictHostKeyChecking=accept-new \
             -p "$SSH_PORT" \
             "$SSH_USER@$SSH_HOST" \
             "cd '$DEPLOY_PATH' && php artisan down"
@@ -84,6 +96,8 @@ jobs:
           SSH_USER: ${{ secrets.SSH_USER }}
           DEPLOY_PATH: ${{ secrets.DEPLOY_PATH }}
         run: |
+          SSH_PORT="${SSH_PORT:-22}"
+
           rsync -az \
             --exclude='.git/' \
             --exclude='.github/' \
@@ -94,7 +108,7 @@ jobs:
             --exclude='public/storage' \
             --exclude='vendor/' \
             --exclude='node_modules/' \
-            -e "ssh -i ~/.ssh/hostinger_deploy_key -p $SSH_PORT" \
+            -e "ssh -i ~/.ssh/hostinger_deploy_key -o StrictHostKeyChecking=accept-new -p $SSH_PORT" \
             ./ "$SSH_USER@$SSH_HOST:$DEPLOY_PATH/"
 
       - name: Complete Laravel deployment
@@ -104,8 +118,11 @@ jobs:
           SSH_USER: ${{ secrets.SSH_USER }}
           DEPLOY_PATH: ${{ secrets.DEPLOY_PATH }}
         run: |
+          SSH_PORT="${SSH_PORT:-22}"
+
           ssh \
             -i ~/.ssh/hostinger_deploy_key \
+            -o StrictHostKeyChecking=accept-new \
             -p "$SSH_PORT" \
             "$SSH_USER@$SSH_HOST" \
             "cd '$DEPLOY_PATH' && \
@@ -114,19 +131,21 @@ jobs:
              php artisan config:clear && \
              php artisan cache:clear && \
              php artisan config:cache && \
-             php artisan view:cache && \
-             php artisan queue:restart || true"
+             php artisan view:cache"
 
       - name: Disable maintenance mode
-        if: always()
+        if: always() && steps.configure-ssh.outcome == 'success'
         env:
           SSH_HOST: ${{ secrets.SSH_HOST }}
           SSH_PORT: ${{ secrets.SSH_PORT }}
           SSH_USER: ${{ secrets.SSH_USER }}
           DEPLOY_PATH: ${{ secrets.DEPLOY_PATH }}
         run: |
+          SSH_PORT="${SSH_PORT:-22}"
+
           ssh \
             -i ~/.ssh/hostinger_deploy_key \
+            -o StrictHostKeyChecking=accept-new \
             -p "$SSH_PORT" \
             "$SSH_USER@$SSH_HOST" \
             "cd '$DEPLOY_PATH' && php artisan up"
