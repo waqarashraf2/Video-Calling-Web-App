@@ -316,22 +316,27 @@ function fillSelect(select, devices, fallback) {
 
 function connectEcho() {
     if (state.echo || !state.session) return;
-    window.Pusher = Pusher;
-    state.echo = new Echo({
-        broadcaster: 'reverb',
-        key: import.meta.env.VITE_REVERB_APP_KEY,
-        wsHost: import.meta.env.VITE_REVERB_HOST || window.location.hostname,
-        wsPort: Number(import.meta.env.VITE_REVERB_PORT || 8080),
-        wssPort: Number(import.meta.env.VITE_REVERB_PORT || 443),
-        forceTLS: (import.meta.env.VITE_REVERB_SCHEME || 'http') === 'https',
-        enabledTransports: ['ws', 'wss'],
-        authEndpoint: '/broadcasting/auth',
-    });
-    state.channel = state.echo.private(`guest.${state.session.uuid}`)
-        .listen('.match.found', handleMatch)
-        .listen('.webrtc.signal', handleSignal)
-        .listen('.participant.left', () => endCall('The other participant left.', true))
-        .listen('.participant.media-state', (event) => updatePeerMedia(event.state));
+    try {
+        window.Pusher = Pusher;
+        state.echo = new Echo({
+            broadcaster: 'reverb',
+            key: import.meta.env.VITE_REVERB_APP_KEY,
+            wsHost: import.meta.env.VITE_REVERB_HOST || window.location.hostname,
+            wsPort: Number(import.meta.env.VITE_REVERB_PORT || 8080),
+            wssPort: Number(import.meta.env.VITE_REVERB_PORT || 443),
+            forceTLS: (import.meta.env.VITE_REVERB_SCHEME || 'http') === 'https',
+            enabledTransports: ['ws', 'wss'],
+            authEndpoint: '/broadcasting/auth',
+        });
+        state.channel = state.echo.private(`guest.${state.session.uuid}`)
+            .listen('.match.found', handleMatch)
+            .listen('.webrtc.signal', handleSignal)
+            .listen('.participant.left', () => endCall('The other participant left.', true))
+            .listen('.participant.media-state', (event) => updatePeerMedia(event.state));
+    } catch {
+        state.echo = null;
+        state.channel = null;
+    }
 }
 
 async function start(event) {
