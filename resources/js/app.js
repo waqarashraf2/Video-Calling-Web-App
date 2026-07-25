@@ -90,6 +90,31 @@ async function api(method, url, data = {}) {
     return response.data;
 }
 
+function messageFrom(error, fallback) {
+    return error?.response?.data?.message || fallback;
+}
+
+function handleAsyncError(error, fallback = 'The call action failed. Please try again.') {
+    if (error?.name === 'CanceledError' || error?.code === 'ERR_CANCELED') return;
+
+    const message = messageFrom(error, fallback);
+    if (els.call.hidden) {
+        els.error.textContent = message;
+        setStatus('welcome');
+
+        return;
+    }
+
+    els.status.textContent = message;
+    els.announcer.textContent = message;
+}
+
+function asyncListener(handler, fallback) {
+    return (event) => {
+        Promise.resolve(handler(event)).catch((error) => handleAsyncError(error, fallback));
+    };
+}
+
 async function refreshOnlineCount() {
     try {
         const { online, waiting } = await api('get', '/api/online');
@@ -374,7 +399,12 @@ async function createPeerConnection(iceServers) {
     cleanupPeer(false);
     state.pc = new RTCPeerConnection({ iceServers });
     state.localStream.getTracks().forEach((track) => state.pc.addTrack(track, state.localStream));
-    state.pc.onicecandidate = ({ candidate }) => candidate && sendSignal('ice-candidate', { candidate: candidate.toJSON() });
+    state.pc.onicecandidate = ({ candidate }) => {
+        if (candidate) {
+            sendSignal('ice-candidate', { candidate: candidate.toJSON() })
+                .catch((error) => handleAsyncError(error, 'Could not exchange network details with the participant.'));
+        }
+    };
     state.pc.ontrack = ({ streams }) => {
         els.remote.srcObject = streams[0];
         els.waiting.hidden = true;
@@ -537,16 +567,16 @@ async function report() {
     await api('post', '/api/reports', { room_uuid: state.room, reason: els.reportReason.value, description: els.reportDescription.value });
 }
 
-els.permission.addEventListener('click', () => requestMedia().catch(() => els.error.textContent = 'Permission denied. Allow camera and microphone access, then retry.'));
-els.camera.addEventListener('change', requestMedia);
-els.mic.addEventListener('change', requestMedia);
-els.form.addEventListener('submit', start);
-els.mute.addEventListener('click', toggleAudio);
-els.cam.addEventListener('click', toggleVideo);
-els.flip.addEventListener('click', switchCamera);
+els.permission.addEventListener('click', asyncListener(requestMedia, 'Permission denied. Allow camera and microphone access, then retry.'));
+els.camera.addEventListener('change', asyncListener(requestMedia, 'Could not switch camera. Please retry.'));
+els.mic.addEventListener('change', asyncListener(requestMedia, 'Could not switch microphone. Please retry.'));
+els.form.addEventListener('submit', asyncListener(start, 'Connection setup failed. Please retry.'));
+els.mute.addEventListener('click', asyncListener(toggleAudio, 'Could not update microphone state.'));
+els.cam.addEventListener('click', asyncListener(toggleVideo, 'Could not update camera state.'));
+els.flip.addEventListener('click', asyncListener(switchCamera, 'Could not switch camera. Please retry.'));
 els.full.addEventListener('click', () => els.remote.requestFullscreen?.());
-els.leave.addEventListener('click', async () => { await api('post', '/api/rooms/leave').catch(() => {}); await endCall('You left.', true); });
-els.next.addEventListener('click', async () => {
+els.leave.addEventListener('click', asyncListener(async () => { await api('post', '/api/rooms/leave').catch(() => {}); await endCall('You left.', true); }, 'Could not leave the room cleanly.'));
+els.next.addEventListener('click', asyncListener(async () => {
     cleanupPeer(true);
     els.waiting.hidden = false;
     startWaitingAnimation();
@@ -555,10 +585,10 @@ els.next.addEventListener('click', async () => {
     if (joined.room) {
         await acceptMatchedRoom();
     }
-});
+}, 'Could not find the next participant. Please retry.'));
 els.report.addEventListener('click', () => els.dialog.showModal());
-els.sendReport.addEventListener('click', (event) => { event.preventDefault(); report().then(() => els.dialog.close()); });
-els.block.addEventListener('click', async () => { await api('post', '/api/blocks', { room_uuid: state.room }); await endCall('Blocked and left.', true); });
+els.sendReport.addEventListener('click', asyncListener(async (event) => { event.preventDefault(); await report(); els.dialog.close(); }, 'Could not send the report. Please retry.'));
+els.block.addEventListener('click', asyncListener(async () => { await api('post', '/api/blocks', { room_uuid: state.room }); await endCall('Blocked and left.', true); }, 'Could not block this participant. Please retry.'));
 window.addEventListener('beforeunload', () => {
     navigator.sendBeacon('/api/rooms/leave', new Blob([], { type: 'application/json' }));
 });

@@ -12,6 +12,8 @@ use Illuminate\Validation\ValidationException;
 
 class SignalingService
 {
+    public function __construct(private readonly SafeBroadcaster $broadcaster) {}
+
     public function send(GuestSession $sender, CallRoom $room, array $payload): void
     {
         $room->loadMissing(['firstGuest', 'secondGuest']);
@@ -31,13 +33,13 @@ class SignalingService
 
         if (($payload['type'] ?? null) === 'media-state') {
             $this->storeForPolling($peer, $room, $sender, $payload);
-            broadcast(new ParticipantMediaStateChanged($peer->public_uuid, $room->public_uuid, $payload));
+            $this->broadcaster->broadcast(new ParticipantMediaStateChanged($peer->public_uuid, $room->public_uuid, $payload));
 
             return;
         }
 
         $this->storeForPolling($peer, $room, $sender, $payload);
-        broadcast(new WebRtcSignalSent($peer->public_uuid, $room->public_uuid, $sender->public_uuid, $payload));
+        $this->broadcaster->broadcast(new WebRtcSignalSent($peer->public_uuid, $room->public_uuid, $sender->public_uuid, $payload));
     }
 
     public function pendingFor(GuestSession $recipient, CallRoom $room, int $after = 0): array

@@ -15,6 +15,7 @@ class MatchmakingService
         private readonly MatchmakingQueue $queue,
         private readonly RoomService $rooms,
         private readonly AbusePreventionService $abuse,
+        private readonly SafeBroadcaster $broadcaster,
     ) {}
 
     public function join(GuestSession $guest): array
@@ -56,7 +57,7 @@ class MatchmakingService
 
         if ($matchedRoom) {
             foreach ([$matchedRoom->firstGuest, $matchedRoom->secondGuest] as $participant) {
-                broadcast(new MatchFound($participant, $matchedRoom));
+                $this->broadcaster->broadcast(new MatchFound($participant, $matchedRoom));
             }
         }
 
@@ -119,7 +120,7 @@ class MatchmakingService
         });
 
         foreach ([$matchedRoom->firstGuest, $matchedRoom->secondGuest] as $participant) {
-            broadcast(new MatchFound($participant, $matchedRoom));
+            $this->broadcaster->broadcast(new MatchFound($participant, $matchedRoom));
         }
 
         return [

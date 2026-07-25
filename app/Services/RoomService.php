@@ -13,6 +13,8 @@ use Illuminate\Support\Str;
 
 class RoomService
 {
+    public function __construct(private readonly SafeBroadcaster $broadcaster) {}
+
     public function activeRoomFor(GuestSession $guest): ?CallRoom
     {
         return CallRoom::query()
@@ -66,8 +68,8 @@ class RoomService
 
         $peer = $room->peerFor($actor);
         if ($peer) {
-            broadcast(new ParticipantLeft($peer->public_uuid, $room->public_uuid, $reason))->toOthers();
+            $this->broadcaster->broadcast(new ParticipantLeft($peer->public_uuid, $room->public_uuid, $reason), toOthers: true);
         }
-        broadcast(new RoomEnded($room->public_uuid, $reason))->toOthers();
+        $this->broadcaster->broadcast(new RoomEnded($room->public_uuid, $reason), toOthers: true);
     }
 }
