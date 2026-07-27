@@ -14,10 +14,10 @@
                     <div>
                         <p class="text-sm font-bold uppercase tracking-normal text-emerald-300">Private browser tool</p>
                         <h1 class="mt-2 text-3xl font-black text-white sm:text-5xl">Image PDF Studio</h1>
-                        <p class="mt-3 max-w-2xl text-base leading-7 text-zinc-300">Convert multiple images into one clean PDF. Your files stay in this browser and are not uploaded to the backend.</p>
+                        <p class="mt-3 max-w-2xl text-base leading-7 text-zinc-300">Convert images and merge existing PDFs into one clean PDF. Your files stay in this browser and are not uploaded to the backend.</p>
                     </div>
                     <div class="rounded-lg border border-emerald-300/30 bg-emerald-300/10 px-4 py-3 text-sm font-bold text-emerald-100">
-                        <span id="fileCount">0</span> images ready
+                        <span id="fileCount">0</span> files ready
                     </div>
                 </header>
 
@@ -25,13 +25,13 @@
                     <div class="grid max-w-xl gap-4">
                         <div class="mx-auto grid h-16 w-16 place-items-center rounded-lg border border-emerald-300/30 bg-emerald-300/10 text-2xl font-black text-emerald-200">PDF</div>
                         <div>
-                            <h2 class="text-2xl font-black text-white">Drop images here</h2>
-                            <p class="mt-2 text-sm leading-6 text-zinc-300">PNG, JPG, JPEG, WEBP, GIF, and BMP files are supported. First image becomes page one.</p>
+                        <h2 class="text-2xl font-black text-white">Drop images or PDFs here</h2>
+                        <p class="mt-2 text-sm leading-6 text-zinc-300">PNG, JPG, JPEG, WEBP, GIF, BMP, and PDF files are supported. First file becomes page one.</p>
                         </div>
                         <div class="flex flex-wrap justify-center gap-3">
                             <label class="inline-flex cursor-pointer items-center justify-center rounded-lg bg-emerald-400 px-5 py-3 font-black text-zinc-950 transition hover:-translate-y-0.5">
-                                Select Images
-                                <input id="imageInput" class="sr-only" type="file" accept="image/*" multiple>
+                                Select Files
+                                <input id="imageInput" class="sr-only" type="file" accept="image/*,.pdf,application/pdf" multiple>
                             </label>
                             <button id="clearButton" class="rounded-lg border border-white/15 bg-zinc-800 px-5 py-3 font-bold text-white transition hover:-translate-y-0.5 hover:border-zinc-300" type="button">Clear</button>
                         </div>
@@ -43,7 +43,7 @@
                         <h2 class="text-lg font-black text-white">Page Order</h2>
                         <span class="text-sm text-zinc-400">Use up/down to arrange pages</span>
                     </div>
-                    <div id="emptyState" class="rounded-lg border border-white/10 bg-zinc-900 p-5 text-zinc-300">No images selected yet.</div>
+                    <div id="emptyState" class="rounded-lg border border-white/10 bg-zinc-900 p-5 text-zinc-300">No images or PDFs selected yet.</div>
                     <div id="imageList" class="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-3"></div>
                 </section>
             </div>

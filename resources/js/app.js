@@ -1,5 +1,3 @@
-import { jsPDF } from 'jspdf';
-
 const $ = (id) => document.getElementById(id);
 
 const elements = {
@@ -23,7 +21,7 @@ const elements = {
 };
 
 const state = {
-    images: [],
+    files: [],
     nextId: 1,
 };
 
@@ -31,6 +29,18 @@ const pageSizes = {
     a4: [210, 297],
     letter: [215.9, 279.4],
 };
+
+async function getPdfDocument() {
+    const { PDFDocument } = await import('pdf-lib');
+
+    return PDFDocument;
+}
+
+async function getJsPdf() {
+    const { jsPDF } = await import('jspdf');
+
+    return jsPDF;
+}
 
 function setStatus(message) {
     elements.status.textContent = message;
@@ -58,7 +68,11 @@ function isImage(file) {
     return file.type.startsWith('image/');
 }
 
-async function imageDimensions(file) {
+function isPdf(file) {
+    return file.type === 'application/pdf' || file.name.toLowerCase().endsWith('.pdf');
+}
+
+async function imageDetails(file) {
     const url = URL.createObjectURL(file);
 
     try {
@@ -68,6 +82,7 @@ async function imageDimensions(file) {
         await image.decode();
 
         return {
+            type: 'image',
             width: image.naturalWidth,
             height: image.naturalHeight,
             previewUrl: url,
@@ -78,24 +93,39 @@ async function imageDimensions(file) {
     }
 }
 
+async function pdfDetails(file) {
+    const PDFDocument = await getPdfDocument();
+    const bytes = await file.arrayBuffer();
+    const document = await PDFDocument.load(bytes, { ignoreEncryption: true });
+
+    return {
+        type: 'pdf',
+        bytes,
+        pageCount: document.getPageCount(),
+        width: null,
+        height: null,
+        previewUrl: null,
+    };
+}
+
 async function addFiles(fileList) {
-    const files = [...fileList].filter(isImage);
+    const files = [...fileList].filter((file) => isImage(file) || isPdf(file));
 
     if (files.length === 0) {
-        setStatus('Please choose image files only.');
+        setStatus('Please choose image or PDF files only.');
 
         return;
     }
 
-    setStatus('Reading images...');
+    setStatus('Reading files...');
 
     for (const file of files) {
         try {
-            const dimensions = await imageDimensions(file);
-            state.images.push({
+            const details = isPdf(file) ? await pdfDetails(file) : await imageDetails(file);
+            state.files.push({
                 id: state.nextId++,
                 file,
-                ...dimensions,
+                ...details,
             });
         } catch (error) {
             setStatus(error.message);
@@ -103,78 +133,90 @@ async function addFiles(fileList) {
     }
 
     render();
-    setStatus(`${state.images.length} image${state.images.length === 1 ? '' : 's'} ready.`);
+    setStatus(`${state.files.length} file${state.files.length === 1 ? '' : 's'} ready.`);
 }
 
-function moveImage(id, direction) {
-    const index = state.images.findIndex((image) => image.id === id);
+function moveFile(id, direction) {
+    const index = state.files.findIndex((file) => file.id === id);
     const nextIndex = index + direction;
 
-    if (index < 0 || nextIndex < 0 || nextIndex >= state.images.length) {
+    if (index < 0 || nextIndex < 0 || nextIndex >= state.files.length) {
         return;
     }
 
-    const [image] = state.images.splice(index, 1);
-    state.images.splice(nextIndex, 0, image);
+    const [file] = state.files.splice(index, 1);
+    state.files.splice(nextIndex, 0, file);
     render();
 }
 
-function removeImage(id) {
-    const index = state.images.findIndex((image) => image.id === id);
+function removeFile(id) {
+    const index = state.files.findIndex((file) => file.id === id);
 
     if (index < 0) {
         return;
     }
 
-    URL.revokeObjectURL(state.images[index].previewUrl);
-    state.images.splice(index, 1);
-    render();
-    setStatus(state.images.length ? `${state.images.length} image${state.images.length === 1 ? '' : 's'} ready.` : 'Select images to begin.');
-}
-
-function clearImages() {
-    for (const image of state.images) {
-        URL.revokeObjectURL(image.previewUrl);
+    if (state.files[index].previewUrl) {
+        URL.revokeObjectURL(state.files[index].previewUrl);
     }
 
-    state.images = [];
+    state.files.splice(index, 1);
+    render();
+    setStatus(state.files.length ? `${state.files.length} file${state.files.length === 1 ? '' : 's'} ready.` : 'Select images or PDFs to begin.');
+}
+
+function clearFiles() {
+    for (const file of state.files) {
+        if (file.previewUrl) {
+            URL.revokeObjectURL(file.previewUrl);
+        }
+    }
+
+    state.files = [];
     elements.input.value = '';
     render();
-    setStatus('Select images to begin.');
+    setStatus('Select images or PDFs to begin.');
 }
 
 function render() {
-    elements.fileCount.textContent = String(state.images.length);
-    elements.emptyState.hidden = state.images.length > 0;
-    elements.downloadButton.disabled = state.images.length === 0;
+    elements.fileCount.textContent = String(state.files.length);
+    elements.emptyState.hidden = state.files.length > 0;
+    elements.downloadButton.disabled = state.files.length === 0;
     elements.imageList.replaceChildren();
 
-    state.images.forEach((image, index) => {
+    state.files.forEach((item, index) => {
         const article = document.createElement('article');
         article.className = 'grid gap-3 rounded-lg border border-white/10 bg-zinc-900 p-3';
 
-        const preview = document.createElement('img');
-        preview.className = 'aspect-[4/3] w-full rounded-lg bg-zinc-950 object-contain';
-        preview.src = image.previewUrl;
-        preview.alt = image.file.name;
+        const preview = item.type === 'image' ? document.createElement('img') : document.createElement('div');
+        preview.className = 'grid aspect-[4/3] w-full place-items-center rounded-lg bg-zinc-950 object-contain text-3xl font-black text-emerald-200';
+
+        if (item.type === 'image') {
+            preview.src = item.previewUrl;
+            preview.alt = item.file.name;
+        } else {
+            preview.textContent = 'PDF';
+        }
 
         const title = document.createElement('div');
         title.className = 'min-w-0';
 
         const name = document.createElement('strong');
         name.className = 'block truncate text-sm text-white';
-        name.textContent = `${index + 1}. ${image.file.name}`;
+        name.textContent = `${index + 1}. ${item.file.name}`;
 
         const meta = document.createElement('span');
         meta.className = 'block text-xs text-zinc-400';
-        meta.textContent = `${image.width} x ${image.height} px, ${bytesToLabel(image.file.size)}`;
+        meta.textContent = item.type === 'image'
+            ? `${item.width} x ${item.height} px, ${bytesToLabel(item.file.size)}`
+            : `${item.pageCount} page${item.pageCount === 1 ? '' : 's'}, ${bytesToLabel(item.file.size)}`;
 
         const controls = document.createElement('div');
         controls.className = 'grid grid-cols-3 gap-2';
 
-        const up = createControl('Up', () => moveImage(image.id, -1), index === 0);
-        const down = createControl('Down', () => moveImage(image.id, 1), index === state.images.length - 1);
-        const remove = createControl('Remove', () => removeImage(image.id), false);
+        const up = createControl('Up', () => moveFile(item.id, -1), index === 0);
+        const down = createControl('Down', () => moveFile(item.id, 1), index === state.files.length - 1);
+        const remove = createControl('Remove', () => removeFile(item.id), false);
         remove.className = `${remove.className} border-rose-300/20 bg-rose-500/10 text-rose-100 hover:border-rose-200`;
 
         title.append(name, meta);
@@ -260,55 +302,92 @@ function imagePlacement(page, image, margin) {
     };
 }
 
+async function createImagePdf(imageItems) {
+    const jsPDF = await getJsPdf();
+    const margin = Number(elements.margin.value);
+    const quality = Number(elements.quality.value) / 100;
+    let pdf = null;
+
+    for (const image of imageItems) {
+        const page = getPageSpec(image);
+
+        if (!pdf) {
+            pdf = new jsPDF({
+                unit: 'mm',
+                format: page.format,
+                orientation: page.orientation,
+                compress: true,
+            });
+        } else {
+            pdf.addPage(page.format, page.orientation);
+        }
+
+        const dataUrl = await drawImageToDataUrl(image, quality);
+        const placement = imagePlacement(page, image, margin);
+        pdf.addImage(dataUrl, 'JPEG', placement.x, placement.y, placement.width, placement.height, undefined, 'FAST');
+    }
+
+    return pdf.output('arraybuffer');
+}
+
+async function appendPdfBytes(targetDocument, bytes) {
+    const PDFDocument = await getPdfDocument();
+    const sourceDocument = await PDFDocument.load(bytes, { ignoreEncryption: true });
+    const copiedPages = await targetDocument.copyPages(sourceDocument, sourceDocument.getPageIndices());
+
+    copiedPages.forEach((page) => targetDocument.addPage(page));
+}
+
+async function appendImageAsPdf(targetDocument, imageItem) {
+    const bytes = await createImagePdf([imageItem]);
+    await appendPdfBytes(targetDocument, bytes);
+}
+
 async function buildPdf(event) {
     event.preventDefault();
 
-    if (state.images.length === 0) {
-        setStatus('Please add at least one image.');
+    if (state.files.length === 0) {
+        setStatus('Please add at least one image or PDF.');
 
         return;
     }
 
     elements.downloadButton.disabled = true;
-    setStatus('Building PDF...');
+    setStatus('Building merged PDF...');
 
     try {
-        const margin = Number(elements.margin.value);
-        const quality = Number(elements.quality.value) / 100;
-        let pdf = null;
+        const PDFDocument = await getPdfDocument();
+        const mergedDocument = await PDFDocument.create();
 
-        for (const [index, image] of state.images.entries()) {
-            const page = getPageSpec(image);
-
-            if (!pdf) {
-                pdf = new jsPDF({
-                    unit: 'mm',
-                    format: page.format,
-                    orientation: page.orientation,
-                    compress: true,
-                });
+        for (const [index, item] of state.files.entries()) {
+            if (item.type === 'pdf') {
+                await appendPdfBytes(mergedDocument, item.bytes);
             } else {
-                pdf.addPage(page.format, page.orientation);
+                await appendImageAsPdf(mergedDocument, item);
             }
 
-            const dataUrl = await drawImageToDataUrl(image, quality);
-            const placement = imagePlacement(page, image, margin);
-            pdf.addImage(dataUrl, 'JPEG', placement.x, placement.y, placement.width, placement.height, undefined, 'FAST');
-            setStatus(`Added page ${index + 1} of ${state.images.length}...`);
+            setStatus(`Merged file ${index + 1} of ${state.files.length}...`);
         }
 
-        pdf.save(normalizeFileName(elements.fileName.value));
+        const mergedBytes = await mergedDocument.save();
+        const blob = new Blob([mergedBytes], { type: 'application/pdf' });
+        const url = URL.createObjectURL(blob);
+        const link = document.createElement('a');
+        link.href = url;
+        link.download = normalizeFileName(elements.fileName.value);
+        link.click();
+        URL.revokeObjectURL(url);
         setStatus('PDF downloaded.');
     } catch (error) {
         setStatus(error?.message || 'PDF could not be generated.');
     } finally {
-        elements.downloadButton.disabled = state.images.length === 0;
+        elements.downloadButton.disabled = state.files.length === 0;
     }
 }
 
 elements.input.addEventListener('change', (event) => addFiles(event.target.files));
 elements.form.addEventListener('submit', buildPdf);
-elements.clearButton.addEventListener('click', clearImages);
+elements.clearButton.addEventListener('click', clearFiles);
 
 elements.margin.addEventListener('input', () => {
     elements.marginValue.textContent = elements.margin.value;
